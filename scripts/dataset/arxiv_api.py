@@ -216,7 +216,7 @@ class ArxivClient:
         (withdrawn / no source), which is permanent and must not be retried.
         """
         url = EPRINT_URL.format(arxiv_id=arxiv_id)
-        last_error: Exception | None = None
+        last_error: Exception | str | None = None
         for attempt in range(self.max_retries):
             self._throttle()
             try:
@@ -224,6 +224,12 @@ class ArxivClient:
                 response = self._session.get(url, timeout=self.timeout)
                 if response.status_code == 404:
                     raise FileNotFoundError(f"No e-print source for {arxiv_id} (HTTP 404)")
+                if response.status_code == 429:
+                    last_error = "rate limited (429)"
+                    cooldown = 60.0 * (attempt + 1)
+                    print(f"  arXiv rate limit on e-print; cooling down {cooldown:.0f}s...")
+                    time.sleep(cooldown)
+                    continue
                 response.raise_for_status()
                 return response.content
             except requests.RequestException as exc:

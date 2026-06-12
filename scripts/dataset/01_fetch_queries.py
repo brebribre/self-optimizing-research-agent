@@ -5,6 +5,12 @@ Searches cs.CL / cs.AI for papers submitted after the cutoff (default
 their metadata to data/raw/query_candidates.jsonl for stage 2 (LaTeX source
 download).
 
+The search is chunked into one query per calendar month. This keeps arXiv
+pagination offsets small (deep offsets like start=5000 trigger rate limiting
+and flaky responses) and makes the stage resumable: candidates are appended
+and flushed as found, completed months are recorded in a sidecar progress
+file, and a rerun after a crash skips finished months and dedupes the rest.
+
 Two-level filtering keeps the arXiv traffic manageable:
 - server side: category + submission date + a broad 'agent' keyword clause
 - client side: a stricter heuristic requiring both an agent-ish and an
@@ -14,21 +20,23 @@ Pilot run (a few minutes, ~50 papers scanned):
 
     uv run --extra dataset python scripts/dataset/01_fetch_queries.py --limit 50
 
-Full run: drop --limit. Expect tens of minutes (arXiv allows ~1 request / 3s).
+Full run: drop --limit. Expect tens of minutes (arXiv allows ~1 request / 3s);
+interrupt and rerun freely.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from arxiv_api import ArxivClient, build_search_query  # noqa: E402
-from common import RAW_DIR, write_jsonl  # noqa: E402
+from common import RAW_DIR, read_jsonl  # noqa: E402
 
 DEFAULT_OUT = RAW_DIR / "query_candidates.jsonl"
 DEFAULT_CATEGORIES = ["cs.CL", "cs.AI"]
@@ -50,6 +58,23 @@ def looks_like_llm_agent_paper(title: str, abstract: str) -> bool:
     return bool(_AGENT_TERMS.search(text)) and bool(_LLM_TERMS.search(text))
 
 
+def month_windows(date_from: str, date_to: str) -> list[tuple[str, str]]:
+    """Split an inclusive date range into per-calendar-month (start, end) pairs."""
+    start = date.fromisoformat(date_from)
+    end = date.fromisoformat(date_to)
+    windows: list[tuple[str, str]] = []
+    current = start
+    while current <= end:
+        if current.month == 12:
+            next_month = date(current.year + 1, 1, 1)
+        else:
+            next_month = date(current.year, current.month + 1, 1)
+        window_end = min(next_month - timedelta(days=1), end)
+        windows.append((current.isoformat(), window_end.isoformat()))
+        current = next_month
+    return windows
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fetch candidate query papers from arXiv.")
     parser.add_argument("--from", dest="date_from", default=DEFAULT_FROM,
@@ -65,34 +90,64 @@ def main() -> None:
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="Output JSONL path.")
     args = parser.parse_args()
 
-    query = build_search_query(
-        args.categories,
-        args.date_from,
-        args.date_to,
-        extra_clause=None if args.broad else SERVER_KEYWORD_CLAUSE,
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    progress_path = Path(str(out_path) + ".progress")
+
+    seen = {r["arxiv_id"] for r in read_jsonl(out_path)} if out_path.exists() else set()
+    done_windows = (
+        set(progress_path.read_text(encoding="utf-8").split()) if progress_path.exists() else set()
     )
-    print(f"arXiv query: {query}")
+    if seen:
+        print(f"Resuming: {len(seen)} candidates already collected, "
+              f"{len(done_windows)} month windows complete.")
 
     client = ArxivClient()
-    seen: set[str] = set()
-    candidates: list[dict] = []
     scanned = 0
+    kept = 0
+    cut_short = False
 
-    for paper in client.search(query, max_results=args.limit):
-        scanned += 1
-        if scanned % 200 == 0:
-            print(f"  scanned {scanned} results, kept {len(candidates)}...")
-        if paper.arxiv_id in seen:
-            continue
-        seen.add(paper.arxiv_id)
-        if not paper.abstract:
-            continue
-        if not looks_like_llm_agent_paper(paper.title, paper.abstract):
-            continue
-        candidates.append(paper.to_dict())
+    with out_path.open("a", encoding="utf-8") as out_file, \
+            progress_path.open("a", encoding="utf-8") as progress_file:
+        for window_start, window_end in month_windows(args.date_from, args.date_to):
+            tag = f"{window_start}:{window_end}"
+            if tag in done_windows:
+                continue
+            if cut_short:
+                break
 
-    count = write_jsonl(args.out, candidates)
-    print(f"Scanned {scanned} results; kept {count} LLM-agent candidates -> {args.out}")
+            query = build_search_query(
+                args.categories,
+                window_start,
+                window_end,
+                extra_clause=None if args.broad else SERVER_KEYWORD_CLAUSE,
+            )
+            print(f"window {tag}...")
+
+            for paper in client.search(query):
+                if args.limit is not None and scanned >= args.limit:
+                    cut_short = True
+                    break
+                scanned += 1
+                if scanned % 200 == 0:
+                    print(f"  scanned {scanned} results, kept {kept}...")
+                if paper.arxiv_id in seen or not paper.abstract:
+                    continue
+                if not looks_like_llm_agent_paper(paper.title, paper.abstract):
+                    continue
+                seen.add(paper.arxiv_id)
+                out_file.write(json.dumps(paper.to_dict(), ensure_ascii=False) + "\n")
+                out_file.flush()
+                kept += 1
+
+            if not cut_short:
+                progress_file.write(tag + "\n")
+                progress_file.flush()
+                print(f"  window {tag} done (total: scanned {scanned}, kept {kept})")
+
+    status = "stopped at --limit" if cut_short else "all windows complete"
+    print(f"{status}: scanned {scanned} new results, kept {kept} -> {out_path}")
+    print(f"Total candidates on disk: {len(seen)}")
 
 
 if __name__ == "__main__":

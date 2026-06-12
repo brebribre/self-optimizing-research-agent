@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual envs / uv
+.venv/
+venv/
+.uvcache/
+.uvtmp/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# DSPy
+*.dspy
+.dspy_cache/
+cache/
+
+# Compiled / optimized programs
+artifacts/*.json
+!artifacts/.gitkeep
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/

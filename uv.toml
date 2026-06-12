@@ -1,0 +1,6 @@
+# Project-local uv cache.
+#
+# This machine's user profile (AppData) is redirected to a different volume than
+# the project, which breaks uv's cross-volume file renames (OS error 17).
+# Pinning the cache onto the same volume as the project avoids that.
+cache-dir = ".uvcache"

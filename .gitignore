@@ -26,6 +26,9 @@ cache/
 artifacts/*.json
 !artifacts/.gitkeep
 
+# Dataset pipeline: downloaded LaTeX source archives (large)
+data/raw/sources/
+
 # IDE / OS
 .vscode/
 .idea/

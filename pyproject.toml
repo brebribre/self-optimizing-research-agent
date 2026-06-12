@@ -19,6 +19,10 @@ server = [
     "fastapi>=0.110.0",
     "uvicorn[standard]>=0.27.0",
 ]
+dataset = [
+    "requests>=2.31.0",
+    "bibtexparser>=1.4.0,<2",
+]
 
 [project.scripts]
 research-agent-server = "research_agent.server.app:run"

@@ -3,6 +3,9 @@
 Usage:
     uv run python -m research_agent.cli --demo
     uv run python -m research_agent.cli --input data/example.json
+
+The input JSON is one dataset record (see data/README.md): a `query` with
+title/abstract and a `candidate_pool` of works the agent may cite by pool_id.
 """
 
 from __future__ import annotations
@@ -13,22 +16,38 @@ from pathlib import Path
 
 from research_agent.agent import RelatedWorkAgent
 from research_agent.config import configure_lm
-from research_agent.data import format_cited_papers
+from research_agent.data import format_candidate_pool
 
 _DEMO = {
-    "title": "Efficient Retrieval-Augmented Generation for Scientific Summarization",
-    "abstract": (
-        "We present a retrieval-augmented approach that improves the factual "
-        "grounding of scientific summaries while reducing inference cost."
-    ),
-    "cited_papers": [
+    "query": {
+        "title": "Self-Correcting Tool Use in LLM Agents via Execution Feedback",
+        "abstract": (
+            "Large language model agents frequently fail multi-step tasks because "
+            "erroneous tool calls go undetected. We present a framework in which agents "
+            "inspect execution feedback after every tool call and revise their plan in "
+            "context, without additional training."
+        ),
+    },
+    "candidate_pool": [
         {
-            "title": "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
-            "abstract": "Combines parametric and non-parametric memory for generation.",
+            "pool_id": "P01",
+            "title": "ReAct: Synergizing Reasoning and Acting in Language Models",
+            "abstract": "Interleaves reasoning traces with task-specific actions in interactive environments.",
         },
         {
-            "title": "Dense Passage Retrieval for Open-Domain Question Answering",
-            "abstract": "Learns dense representations for efficient passage retrieval.",
+            "pool_id": "P02",
+            "title": "Reflexion: Language Agents with Verbal Reinforcement Learning",
+            "abstract": "Agents verbally reflect on task feedback and store reflections to improve later trials.",
+        },
+        {
+            "pool_id": "P03",
+            "title": "Generative Agents: Interactive Simulacra of Human Behavior",
+            "abstract": "Agents simulate believable human behavior by storing and retrieving memories.",
+        },
+        {
+            "pool_id": "P04",
+            "title": "Teaching Large Language Models to Self-Debug",
+            "abstract": "Models debug their predicted programs by explaining code and using execution results.",
         },
     ],
 }
@@ -43,7 +62,7 @@ def _load_input(path: str | None) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate a Related Work section.")
-    parser.add_argument("--input", help="Path to a JSON file with one example.")
+    parser.add_argument("--input", help="Path to a JSON file with one dataset record.")
     parser.add_argument("--demo", action="store_true", help="Run the built-in demo example.")
     parser.add_argument("--model", help="Override the LM id (e.g. anthropic/claude-opus-4-8).")
     args = parser.parse_args()
@@ -56,9 +75,9 @@ def main() -> None:
 
     record = _load_input(args.input)
     prediction = agent(
-        title=record["title"],
-        abstract=record["abstract"],
-        cited_papers=format_cited_papers(record.get("cited_papers", [])),
+        title=record["query"]["title"],
+        abstract=record["query"]["abstract"],
+        cited_papers=format_candidate_pool(record.get("candidate_pool", [])),
     )
 
     print("\n=== Generated Related Work ===\n")

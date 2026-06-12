@@ -8,8 +8,8 @@ Run once real training data exists under data/:
 
     uv run python scripts/optimize.py --train data/train.jsonl --dev data/dev.jsonl
 
-The optimizer choice (MIPROv2) and budget are deliberately conservative for a
-PoC; tune as the dataset grows.
+The optimizer (MIPROv2 or BootstrapFewShot) and budget are deliberately
+conservative for a PoC; tune as the dataset grows.
 """
 
 from __future__ import annotations
@@ -17,12 +17,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import dspy
-
 from research_agent.agent import RelatedWorkAgent
 from research_agent.config import configure_lm
 from research_agent.data import load_examples
-from research_agent.metrics import citation_recall
+from research_agent.registry import METRICS, OPTIMIZERS
 
 ARTIFACTS_DIR = Path(__file__).resolve().parents[1] / "artifacts"
 
@@ -32,6 +30,18 @@ def main() -> None:
     parser.add_argument("--train", required=True, help="Path to training JSONL.")
     parser.add_argument("--dev", help="Path to dev/validation JSONL (optional).")
     parser.add_argument("--model", help="Override the LM id.")
+    parser.add_argument(
+        "--metric",
+        choices=list(METRICS),
+        default="f1",
+        help="Which metric to optimize against (the experiment to run).",
+    )
+    parser.add_argument(
+        "--optimizer",
+        choices=list(OPTIMIZERS),
+        default="mipro",
+        help="Which DSPy optimizer to use.",
+    )
     parser.add_argument(
         "--out",
         default=str(ARTIFACTS_DIR / "optimized_agent.json"),
@@ -46,12 +56,10 @@ def main() -> None:
 
     print(f"Loaded {len(trainset)} train / {len(devset)} dev examples.")
 
-    optimizer = dspy.MIPROv2(metric=citation_recall, auto="light")
-    optimized = optimizer.compile(
-        RelatedWorkAgent(),
-        trainset=trainset,
-        valset=devset,
-    )
+    optimizer_spec = OPTIMIZERS[args.optimizer]
+    print(f"Optimizing with metric '{args.metric}' via {optimizer_spec.label}.")
+    optimizer = optimizer_spec.build(METRICS[args.metric].fn)
+    optimized = optimizer_spec.run(optimizer, RelatedWorkAgent(), trainset, devset)
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)

@@ -22,8 +22,16 @@ class GenerateRelatedWork(dspy.Signature):
     title: str = dspy.InputField(desc="Title of the paper being written.")
     abstract: str = dspy.InputField(desc="Abstract of the paper being written.")
     cited_papers: str = dspy.InputField(
-        desc="Candidate related papers, one per line as 'Title: <title> | Abstract: <abstract>'."
+        desc=(
+            "Candidate related papers, one per line as "
+            "'[P01] Title: <title> | Abstract: <abstract>'. "
+            "Not all candidates are relevant — some are distractors."
+        )
     )
     related_work: str = dspy.OutputField(
-        desc="A well-organized Related Work section in prose, citing the relevant works by title."
+        desc=(
+            "A well-organized Related Work section in prose. Cite candidate works "
+            "inline by their bracketed pool id, e.g. [P01]. Only cite works that are "
+            "genuinely relevant to the paper."
+        )
     )

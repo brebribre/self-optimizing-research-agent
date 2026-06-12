@@ -19,17 +19,19 @@ DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 4096
 
 
-def configure_lm(
+def build_lm(
     model: str | None = None,
     *,
     temperature: float | None = None,
     max_tokens: int | None = None,
 ) -> dspy.LM:
-    """Configure and register the global DSPy LM.
+    """Construct a `dspy.LM` without touching DSPy's global settings.
 
     Arguments take precedence over environment variables, which take
-    precedence over the built-in defaults. Returns the constructed `dspy.LM`
-    so callers can inspect or reuse it.
+    precedence over the built-in defaults. Use the returned LM with
+    `dspy.context(lm=...)` in multi-threaded code (e.g. the server) —
+    `dspy.configure` is global and may only be called from the thread that
+    first configured it.
     """
     load_dotenv()
 
@@ -51,6 +53,20 @@ def configure_lm(
             "or export it in your shell."
         )
 
-    lm = dspy.LM(model, temperature=temperature, max_tokens=max_tokens)
+    return dspy.LM(model, temperature=temperature, max_tokens=max_tokens)
+
+
+def configure_lm(
+    model: str | None = None,
+    *,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+) -> dspy.LM:
+    """Configure and register the global DSPy LM (single-threaded entry points).
+
+    Suitable for the CLI and scripts, which run on the main thread. Server
+    code must use `build_lm` + `dspy.context` instead.
+    """
+    lm = build_lm(model, temperature=temperature, max_tokens=max_tokens)
     dspy.configure(lm=lm)
     return lm
